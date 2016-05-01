@@ -7,6 +7,7 @@
 ----
 
 gpu = false
+gru = true
 if gpu then
     require 'cunn'
     print("Running on GPU") 
@@ -27,7 +28,7 @@ local params = {
                 layers=2,
                 decay=2,
                 rnn_size=200, -- hidden unit size
-                dropout=0.5, 
+                dropout=0, 
                 init_weight=0.1, -- random weight initialization limits
                 lr=1, --learning rate
                 vocab_size=10000, -- limit on the vocabulary size
@@ -72,6 +73,29 @@ local function lstm(x, prev_c, prev_h)
     return next_c, next_h
 end
 
+local function gru(input,prevh)
+	local i2h = nn.Linear(params.rnn_size, 3*params.rnn_size)(input)
+	local h2h = nn.Linear(params.rnn_size, 3*params.rnn_size)(prevh)
+	local gates = nn.CAddTable()({
+	 nn.Narrow(2,1,2*params.rnn_size)(i2h),
+	 nn.Narrow(2,1,2*params.rnn_size)(h2h),
+	})
+	gates = nn.SplitTable(2)(nn.Reshape(2, params.rnn_size)(gates))
+	
+	local resetgate = nn.Sigmoid()(nn.SelectTable(1)(gates))
+	local updategate = nn.Sigmoid()(nn.SelectTable(2)(gates))
+	local output = nn.Tanh()(nn.CAddTable()({
+	 	nn.Narrow(2, 2*params.rnn_size+1, params.rnn_size)(i2h),
+	 	nn.CMulTable()({resetgate,nn.Narrow(2, 2*params.rnn_size+1, params.rnn_size)(h2h)})
+	}))
+	
+	local nexth = nn.CAddTable()({ 
+		prevh,
+	 	nn.CMulTable()({ updategate, nn.CSubTable()({output, prevh})})
+	})
+	return nexth
+end
+
 function create_network()
     local x                  = nn.Identity()()
     local y                  = nn.Identity()()
@@ -79,13 +103,11 @@ function create_network()
     local i                  = {[0] = nn.LookupTable(params.vocab_size,
                                                     params.rnn_size)(x)}
     local next_s             = {}
-    local split              = {prev_s:split(2 * params.layers)}
+    local split              = {prev_s:split(params.layers)}
     for layer_idx = 1, params.layers do
-        local prev_c         = split[2 * layer_idx - 1]
-        local prev_h         = split[2 * layer_idx]
+        local prev_h         = split[layer_idx]
         local dropped        = nn.Dropout(params.dropout)(i[layer_idx - 1])
-        local next_c, next_h = lstm(dropped, prev_c, prev_h)
-        table.insert(next_s, next_c)
+        local next_h = gru(dropped, prev_h)
         table.insert(next_s, next_h)
         i[layer_idx] = next_h
     end
@@ -101,7 +123,7 @@ function create_network()
 end
 
 function setup()
-    print("Creating a RNN LSTM network.")
+    print("Creating a RNN GRU network.")
     local core_network = create_network()
     paramx, paramdx = core_network:getParameters()
     model.s = {}
@@ -109,11 +131,11 @@ function setup()
     model.start_s = {}
     for j = 0, params.seq_length do
         model.s[j] = {}
-        for d = 1, 2 * params.layers do
+        for d = 1, params.layers do
             model.s[j][d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
         end
     end
-    for d = 1, 2 * params.layers do
+    for d = 1, params.layers do
         model.start_s[d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
         model.ds[d] = transfer_data(torch.zeros(params.batch_size, params.rnn_size))
     end
@@ -126,7 +148,7 @@ end
 function reset_state(state)
     state.pos = 1
     if model ~= nil and model.start_s ~= nil then
-        for d = 1, 2 * params.layers do
+        for d = 1, params.layers do
             model.start_s[d]:zero()
         end
     end
