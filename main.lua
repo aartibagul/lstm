@@ -26,9 +26,9 @@ local params = {
                 seq_length=20, -- unroll length
                 layers=2,
                 decay=2,
-                rnn_size=200, -- hidden unit size
-                dropout=0, 
-                init_weight=0.1, -- random weight initialization limits
+                rnn_size=650, -- hidden unit size
+                dropout=0.5, 
+                init_weight=0.05, -- random weight initialization limits
                 lr=1, --learning rate
                 vocab_size=10000, -- limit on the vocabulary size
                 max_epoch=4,  -- when to start decaying learning rate
@@ -94,7 +94,7 @@ function create_network()
     local pred               = nn.LogSoftMax()(h2y(dropped))
     local err                = nn.ClassNLLCriterion()({pred, y})
     local module             = nn.gModule({x, y, prev_s},
-                                      {err, nn.Identity()(next_s)})
+                                      {err, nn.Identity()(next_s),nn.Identity()(pred)})
     -- initialize weights
     module:getParameters():uniform(-params.init_weight, params.init_weight)
     return transfer_data(module)
@@ -175,9 +175,10 @@ function bp(state)
         local s = model.s[i - 1]
         -- Why 1?
         local derr = transfer_data(torch.ones(1))
+	local extra_output = transfer_data(torch.zeros(params.batch_size, params.vocab_size))
         -- tmp stores the ds
         local tmp = model.rnns[i]:backward({x, y, s},
-                                           {derr, model.ds})[3]
+                                           {derr, model.ds, extra_output})[3]
         -- remember (to, from)
         g_replace_table(model.ds, tmp)
     end
@@ -295,5 +296,11 @@ while epoch < params.max_max_epoch do
         end
     end
 end
+
+print("testing")
 run_test()
+
+print("Saving")
+model_file = 'models/model.net'
+torch.save(model_file, model)
 print("Training is over.")
