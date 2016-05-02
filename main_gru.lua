@@ -7,7 +7,6 @@
 ----
 
 gpu = false
-gru = true
 if gpu then
     require 'cunn'
     print("Running on GPU") 
@@ -323,6 +322,6 @@ print("testing")
 run_test()
 
 print("Saving")
-model_file = 'models/model.net'
+model_file = 'models/model2.net'
 torch.save(model_file, model)
 print("Training is over.")

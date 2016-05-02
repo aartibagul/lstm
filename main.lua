@@ -27,7 +27,7 @@ local params = {
                 layers=2,
                 decay=2,
                 rnn_size=200, -- hidden unit size
-                dropout=0.5, 
+                dropout=0, 
                 init_weight=0.1, -- random weight initialization limits
                 lr=1, --learning rate
                 vocab_size=10000, -- limit on the vocabulary size
@@ -294,6 +294,11 @@ while epoch < params.max_max_epoch do
         if epoch > params.max_epoch then
             params.lr = params.lr / params.decay
         end
+	if step/epoch_size > 13 then
+                print("Saving")
+                local model_file = 'models/model_default.net'
+                torch.save(model_file, model)
+        end
     end
 end
 
@@ -301,6 +306,6 @@ print("testing")
 run_test()
 
 print("Saving")
-model_file = 'models/model.net'
+model_file = 'models/model_default.net'
 torch.save(model_file, model)
 print("Training is over.")
